@@ -1,7 +1,7 @@
 # IM-ChattingRoom
 使用Go语言完成的一个Socket网络聊天室（跟随教程）
 
-## 1. 版本详情
+## 1.版本内容
 
 |Version|Title|Info|
 |---|---|---|
@@ -10,7 +10,7 @@
 
 
 
-## 2.运行方法
+## 2.  运行方法
 
 Compile:
 ```bash
