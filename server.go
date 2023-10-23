@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"net"
 	"sync"
 )
@@ -18,7 +19,7 @@ type Server struct {
 	Message chan string
 }
 
-// 创建server的方法
+// NewServer 创建server的方法
 func NewServer(ip string, port int) *Server {
 	server := &Server{
 		Ip:        ip,
@@ -43,7 +44,8 @@ func (this *Server) ListenMessager() {
 	}
 }
 
-// 广播消息的方法，由user发起，广播内容为msg
+// BroadCast 广播消息的方法，由user发起，广播内容为msg
+// 在0.2版本中，user发给Message管道“我已上线”的消息，然后server广播给所有人
 func (this *Server) BroadCast(user *User, msg string) {
 	// 构建消息内容：用户地址+用户名+消息内容
 	sendMsg := "[" + user.Addr + "]" + user.Name + ":" + msg
@@ -51,9 +53,10 @@ func (this *Server) BroadCast(user *User, msg string) {
 	this.Message <- sendMsg
 }
 
-// 业务处理方法
+// Handler 业务处理方法
 // 在定义的函数名之前加上(this *Server)的说明，表示为Server类添加一个方法
 // 若无这样的说明，则只是普通的函数
+// 本方法中，传入的参数conn表示当前和server连接的用户socket。可以有多个，因为开辟了多个go程
 func (this *Server) Handler(conn net.Conn) {
 	//...当前连接的业务
 	//fmt.Println("[INFO] Connection Established!")
@@ -66,14 +69,38 @@ func (this *Server) Handler(conn net.Conn) {
 	this.mapLock.Unlock()
 
 	//然后，广播当前用户上线的消息给到全部user
-	this.BroadCast(user, "已上线")
+	this.BroadCast(user, "Now is online! ")
+
+	//[v0.3更新] 为了实现广播，先接收客户端发送的消息
+	//上线之后新开了一个go程，实时监控当前连接用户是否下线
+	go func() {
+		buf := make([]byte, 4096) //配置一个4K长度的缓冲区数组
+		for {
+			// 从conn中读取数据（对端发来的消息）存到buf里
+			n, err := conn.Read(buf)
+			//Println(buf)
+			if n == 0 {
+				this.BroadCast(user, "Now is Offline! ")
+				return
+			}
+			if err != nil && err != io.EOF {
+				fmt.Println("[ERROR] Conn Read Error: ", err)
+				return
+			}
+
+			msg := string(buf[:n-1]) //提取用户的消息（去除'\n'）
+
+			//将msg广播出去
+			this.BroadCast(user, msg)
+		}
+	}()
 
 	//先保持handler仍然运作（阻塞），否则有可能让前面的go程终止
 	select {}
 
 }
 
-// 启动服务器的接口
+// Start 启动服务器的接口
 func (this *Server) Start() {
 	// SOCKET LISTEN
 	listener, err := net.Listen("tcp", fmt.Sprintf("%s:%d", this.Ip, this.Port))
@@ -86,7 +113,7 @@ func (this *Server) Start() {
 	// 全部执行完后，关闭Socket
 	defer listener.Close()
 
-	//启动LitenMessager
+	//启动ListenMessager
 	go this.ListenMessager()
 
 	for {
